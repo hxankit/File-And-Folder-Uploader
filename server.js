@@ -141,6 +141,40 @@ app.get('/download', (req, res) => {
   }
 });
 
+// Delete endpoint for files and folders
+app.delete('/delete', async (req, res) => {
+  try {
+    const rel = req.query.path;
+    if (!rel) return res.status(400).json({ error: 'Missing path query' });
+    
+    // Prevent path traversal
+    const safe = path.normalize(rel).replace(/^([\\/]+)|([\\/]+)$/g, '');
+    const baseDir = path.join(__dirname, 'uploads');
+    const full = path.join(baseDir, safe);
+    
+    if (!full.startsWith(baseDir)) {
+      return res.status(400).json({ error: 'Invalid path' });
+    }
+    
+    if (!fs.existsSync(full)) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    if (fs.statSync(full).isDirectory()) {
+      // Remove directory and all contents
+      fs.rmSync(full, { recursive: true, force: true });
+    } else {
+      // Remove single file
+      fs.unlinkSync(full);
+    }
+
+    res.json({ ok: true, message: 'Deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Delete failed', details: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
 });

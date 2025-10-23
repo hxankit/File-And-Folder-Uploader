@@ -178,7 +178,6 @@
         color: white;
         opacity: 0;
         transition: opacity 0.3s;
-        z-index: 1000;
       }
 
       .toast.success {
@@ -245,81 +244,91 @@
 
     <div id="toast" class="toast"></div>
 
+    <style>
+      .file-manager {
+        border: 1px solid #eee;
+        padding: 1rem;
+        margin-top: 1rem;
+      }
+      .file-item {
+        display: flex;
+        align-items: center;
+        padding: 0.5rem;
+        border-bottom: 1px solid #eee;
+      }
+      .file-item:last-child {
+        border-bottom: none;
+      }
+      .file-name {
+        flex: 1;
+        margin-right: 1rem;
+      }
+      .file-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+      .file-actions button {
+        padding: 0.25rem 0.5rem;
+      }
+      .folder-icon::before {
+        content: "📁";
+        margin-right: 0.5rem;
+      }
+      .file-icon::before {
+        content: "📄";
+        margin-right: 0.5rem;
+      }
+    </style>
+
     <script>
       const folderInput = document.getElementById('folder');
       const zipInput = document.getElementById('zip');
       const uploadBtn = document.getElementById('upload');
       const uploadZipBtn = document.getElementById('uploadZip');
-      const fileManager = document.getElementById('fileManager');
-      const toast = document.getElementById('toast');
+      const log = document.getElementById('log');
 
-      function showToast(message, type = 'success') {
-        toast.textContent = message;
-        toast.className = `toast ${type}`;
-        toast.style.opacity = 1;
-        setTimeout(() => {
-          toast.style.opacity = 0;
-        }, 3000);
-      }
+      function append(s) { log.textContent += s + '\n'; }
 
       async function uploadFiles(files, isZip = false) {
-        if (!files || files.length === 0) {
-          showToast('No files selected', 'error');
-          return;
+        if (!files || files.length === 0) { 
+          append('No files selected'); 
+          return; 
         }
-
-        const progressBar = document.getElementById(isZip ? 'zipProgress' : 'folderProgress');
-        const statusText = document.getElementById(isZip ? 'zipStatus' : 'folderStatus');
-        progressBar.style.display = 'block';
-        const progressFill = progressBar.querySelector('.progress-bar-fill');
 
         const fd = new FormData();
         for (const f of files) {
           if (isZip) {
             fd.append('files', f, f.name);
           } else {
+            // Use webkitRelativePath when available to preserve folder structure
             const relative = f.webkitRelativePath || f.name;
+            // Append each file with its relative path as the filename so server can use originalname
             fd.append('files', f, relative);
           }
         }
 
-        statusText.textContent = 'Uploading...';
-        progressFill.style.width = '50%';
-
+        append(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`);
         try {
-          const response = await fetch('/upload', {
-            method: 'POST',
-            body: fd
-          });
-
-          const data = await response.json();
-          
-          if (data.ok) {
-            showToast(`Successfully uploaded ${files.length} file(s)`);
-            progressFill.style.width = '100%';
-            statusText.textContent = 'Upload complete!';
-            setTimeout(() => {
-              progressBar.style.display = 'none';
-              progressFill.style.width = '0%';
-              statusText.textContent = '';
-            }, 2000);
-            refreshFileManager();
-          } else {
-            throw new Error(data.error || 'Upload failed');
-          }
+          const resp = await fetch('/upload', { method: 'POST', body: fd });
+          const data = await resp.json();
+          append('Server response: ' + JSON.stringify(data));
         } catch (err) {
-          showToast(err.message, 'error');
-          statusText.textContent = 'Upload failed';
-          setTimeout(() => {
-            progressBar.style.display = 'none';
-            progressFill.style.width = '0%';
-            statusText.textContent = '';
-          }, 2000);
+          append('Upload error: ' + err.message);
         }
       }
 
+      uploadBtn.addEventListener('click', () => {
+        uploadFiles(folderInput.files).then(refreshFileManager);
+      });
+      
+      uploadZipBtn.addEventListener('click', () => {
+        uploadFiles(zipInput.files, true).then(refreshFileManager);
+      });
+
+      const fileManager = document.getElementById('fileManager');
+
       async function deleteItem(path) {
-        if (!confirm(`Are you sure you want to delete ${path}?`)) {
+        if (!confirm('Are you sure you want to delete this item?')) {
           return;
         }
 
@@ -330,13 +339,13 @@
           const data = await response.json();
           
           if (data.ok) {
-            showToast(`Successfully deleted: ${path}`);
+            append('Deleted: ' + path);
             refreshFileManager();
           } else {
-            throw new Error(data.error || 'Delete failed');
+            append('Delete failed: ' + data.error);
           }
         } catch (err) {
-          showToast(err.message, 'error');
+          append('Delete error: ' + err.message);
         }
       }
 
@@ -353,84 +362,61 @@
             data.files.forEach(file => {
               const parts = file.path.split('/');
               if (parts.length === 1) {
-                if (!filesByFolder['']) filesByFolder[''] = [];
+                // Root level files
+                if (!filesByFolder['']) {
+                  filesByFolder[''] = [];
+                }
                 filesByFolder[''].push(file);
               } else {
+                // Files in folders
                 const folder = parts[0];
-                if (!filesByFolder[folder]) filesByFolder[folder] = [];
+                if (!filesByFolder[folder]) {
+                  filesByFolder[folder] = [];
+                }
                 filesByFolder[folder].push(file);
               }
             });
 
-            // Sort folders and files
-            Object.entries(filesByFolder).sort(([a], [b]) => a.localeCompare(b)).forEach(([folder, files]) => {
+            // Create folder and file elements
+            Object.entries(filesByFolder).forEach(([folder, files]) => {
               if (folder) {
                 // Folder item
                 const div = document.createElement('div');
                 div.className = 'file-item';
                 div.innerHTML = `
-                  <div class="folder-icon"></div>
-                  <div class="file-name">${folder}</div>
+                  <span class="file-name folder-icon">${folder}</span>
                   <div class="file-actions">
-                    <button class="action-button download-btn" onclick="window.location.href='/download?path=${encodeURIComponent(folder)}'" title="Download as ZIP">
-                      Download
-                    </button>
-                    <button class="action-button delete-btn" onclick="deleteItem('${folder}')" title="Delete folder and contents">
-                      Delete
-                    </button>
+                    <button onclick="window.location.href='/download?path=${encodeURIComponent(folder)}'">Download</button>
+                    <button onclick="deleteItem('${folder}')" style="background:#ff4444;color:white">Delete</button>
                   </div>
                 `;
                 fileManager.appendChild(div);
               }
 
-              // Sort and display files
-              files.sort((a, b) => a.path.localeCompare(b.path)).forEach(file => {
-                if (!folder || file.path !== folder) {
+              // Individual files
+              files.forEach(file => {
+                if (!folder || file.path !== folder) {  // Skip folder entries
                   const div = document.createElement('div');
                   div.className = 'file-item';
                   div.innerHTML = `
-                    <div class="file-icon"></div>
-                    <div class="file-name">${file.path}</div>
+                    <span class="file-name file-icon">${file.path}</span>
                     <div class="file-actions">
-                      <button class="action-button download-btn" onclick="window.location.href='/download?path=${encodeURIComponent(file.path)}'" title="Download file">
-                        Download
-                      </button>
-                      <button class="action-button delete-btn" onclick="deleteItem('${file.path}')" title="Delete file">
-                        Delete
-                      </button>
+                      <button onclick="window.location.href='/download?path=${encodeURIComponent(file.path)}'">Download</button>
+                      <button onclick="deleteItem('${file.path}')" style="background:#ff4444;color:white">Delete</button>
                     </div>
                   `;
                   fileManager.appendChild(div);
                 }
               });
             });
-
-            if (fileManager.children.length === 0) {
-              fileManager.innerHTML = '<div class="file-item" style="text-align: center; color: #666;">No files uploaded yet</div>';
-            }
           }
         } catch (err) {
-          showToast('Error loading file list: ' + err.message, 'error');
+          append('Error loading file list: ' + err.message);
         }
       }
 
-      // Event Listeners
-      uploadBtn.addEventListener('click', () => uploadFiles(folderInput.files));
-      uploadZipBtn.addEventListener('click', () => uploadFiles(zipInput.files, true));
-
-      // Reset file inputs after upload
-      folderInput.addEventListener('change', () => {
-        document.getElementById('folderStatus').textContent = 
-          folderInput.files.length ? `Selected ${folderInput.files.length} files` : '';
-      });
-
-      zipInput.addEventListener('change', () => {
-        document.getElementById('zipStatus').textContent = 
-          zipInput.files.length ? `Selected: ${zipInput.files[0].name}` : '';
-      });
-
-      // Initial load
+      // Initial load of file manager
       refreshFileManager();
     </script>
   </body>
-</html>
+  </html>
