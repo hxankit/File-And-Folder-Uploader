@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Folder Upload Demo</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 720px; margin: 2rem auto; }
+      .log { white-space: pre-wrap; background:#f7f7f7;border:1px solid #eee;padding:1rem }
+    </style>
+  </head>
+  <body>
+    <h1>Folder Upload Demo</h1>
+    <p>Select a folder. The client will send files with their relative paths and the server will recreate the folder under <code>uploads/</code>.</p>
+
+    <div>
+      <input id="folder" type="file" webkitdirectory directory multiple />
+      <button id="upload">Upload Folder</button>
+    </div>
+    
+    <div style="margin-top: 1rem;">
+      <input id="zip" type="file" accept=".zip" />
+      <button id="uploadZip">Upload Zip File</button>
+    </div>
+
+    <h3>Log</h3>
+    <div id="log" class="log"></div>
+
+    <script>
+      const folderInput = document.getElementById('folder');
+      const zipInput = document.getElementById('zip');
+      const uploadBtn = document.getElementById('upload');
+      const uploadZipBtn = document.getElementById('uploadZip');
+      const log = document.getElementById('log');
+
+      function append(s) { log.textContent += s + '\n'; }
+
+      async function uploadFiles(files, isZip = false) {
+        if (!files || files.length === 0) { 
+          append('No files selected'); 
+          return; 
+        }
+
+        const fd = new FormData();
+        for (const f of files) {
+          if (isZip) {
+            fd.append('files', f, f.name);
+          } else {
+            // Use webkitRelativePath when available to preserve folder structure
+            const relative = f.webkitRelativePath || f.name;
+            // Append each file with its relative path as the filename so server can use originalname
+            fd.append('files', f, relative);
+          }
+        }
+
+        append(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`);
+        try {
+          const resp = await fetch('/upload', { method: 'POST', body: fd });
+          const data = await resp.json();
+          append('Server response: ' + JSON.stringify(data));
+        } catch (err) {
+          append('Upload error: ' + err.message);
+        }
+      }
+
+      uploadBtn.addEventListener('click', () => uploadFiles(folderInput.files));
+      uploadZipBtn.addEventListener('click', () => uploadFiles(zipInput.files, true));
+    </script>
+  </body>
+  </html>
